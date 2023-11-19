@@ -1,0 +1,115 @@
+import os
+import cv2
+import numpy as np
+from sklearn.model_selection import train_test_split
+from tensorflow import keras
+from tensorflow.keras import layers
+
+input_shape = (48, 48, 1)
+# Define the path to your FER dataset folder
+fer_data_path = "D:\FER_Dataset\\training"
+
+# Define the emotion labels used in the dataset
+emotion_labels = ['Angry', 'Disgusted', 'Fearful', 'Happy', 'Sad', 'Surprised', 'Neutral']
+
+# Function to load and preprocess the FER dataset
+def load_and_preprocess_fer_data(data_path):
+    x = []
+    y = []
+
+    for label in os.listdir(data_path):
+        label_path = os.path.join(data_path, label)
+        for image_file in os.listdir(label_path):
+            image_path = os.path.join(label_path, image_file)
+            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2.resize(img, (48, 48))  # Resize the images to a common size
+            x.append(img)
+            y.append(emotion_labels.index(label))
+
+    x = np.array(x)
+    y = np.array(y)
+
+    return x, y
+
+# Load and preprocess the FER dataset
+x, y = load_and_preprocess_fer_data(fer_data_path)
+
+# Split the dataset into training and testing sets
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
+
+# Normalize pixel values to the [0, 1] range
+x_train = x_train.astype("float32") / 255
+x_test = x_test.astype("float32") / 255
+
+# Expand dimensions to match the input shape
+x_train = np.expand_dims(x_train, -1)
+x_test = np.expand_dims(x_test, -1)
+print("x_train shape:", x_train.shape)
+print(x_train.shape[0], "train samples")
+print(x_test.shape[0], "test samples")
+
+# Convert class labels to binary class matrices
+num_classes = len(emotion_labels)
+y_train = keras.utils.to_categorical(y_train, num_classes)
+y_test = keras.utils.to_categorical(y_test, num_classes)
+
+# Now, x_train, y_train, x_test, and y_test can be used for model training
+model = keras.Sequential(
+    [
+        keras.Input(shape=input_shape),
+        layers.Conv2D(32, kernel_size=(3, 3), activation="relu"),
+        layers.MaxPooling2D(pool_size=(2, 2)),
+        layers.Conv2D(64, kernel_size=(3, 3), activation="relu"),
+        layers.MaxPooling2D(pool_size=(2, 2)),
+        layers.Flatten(),
+        layers.Dropout(0.5),
+        layers.Dense(256, activation="relu"),
+        layers.Dropout(0.5),
+        layers.Dense(7, activation="softmax")
+    ]
+)
+
+# Compile the model with a lower learning rate
+model.compile(
+    optimizer=keras.optimizers.Adam(learning_rate=0.0001),
+    loss="categorical_crossentropy",  # Change to categorical_crossentropy
+    metrics=["accuracy"]
+)
+
+# Train the model with data augmentation
+datagen = keras.preprocessing.image.ImageDataGenerator(
+    rotation_range=20,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode="nearest"
+)
+
+# Define the number of epochs
+epochs = 10
+
+# Train the model with data augmentation
+history = model.fit(
+    datagen.flow(x_train, y_train, batch_size=32),
+    epochs=epochs,
+    validation_data=(x_test, y_test)
+)
+
+# Evaluate the model on the test set
+test_loss, test_accuracy = model.evaluate(x_test, y_test)
+print("Test Loss:", test_loss)
+print("Test Accuracy:", test_accuracy)
+
+# Plot training history (optional)
+import matplotlib.pyplot as plt
+
+plt.plot(history.history['accuracy'], label='Training Accuracy')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.show()
+# Save the entire model to a HDF5 file
+model.save("emotion_model.h5")
